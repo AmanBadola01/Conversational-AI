@@ -43,7 +43,7 @@ class LLMClient:
             try:
                 from langchain_groq import ChatGroq
                 self._utility_llm = ChatGroq(
-                    model_name=settings.GROQ_MODEL,
+                    model=settings.GROQ_MODEL,
                     groq_api_key=settings.GROQ_API_KEY,
                     temperature=0.1
                 )
