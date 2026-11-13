@@ -78,6 +78,12 @@ class ConversationDetailResponse(ConversationResponse):
 
 
 # ----------------- Memory Schemas -----------------
+class EntityCreate(BaseModel):
+    name: str = Field(..., example="Gemini 2.0")
+    entity_type: str = Field(default="technology", example="technology")
+    description: str = Field(..., example="High-performance multimodal generative model from Google")
+    is_global: bool = Field(default=False)
+
 class EntityHistoryResponse(BaseModel):
     id: int
     version: int
@@ -102,6 +108,11 @@ class EntityResponse(BaseModel):
     class Config:
         from_attributes = True
 
+class KGTripleCreate(BaseModel):
+    subject: str = Field(..., example="Alice")
+    predicate: str = Field(..., example="manages")
+    object: str = Field(..., example="Project Gemini")
+
 class KGTripleResponse(BaseModel):
     id: int
     conversation_id: str
@@ -113,6 +124,21 @@ class KGTripleResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+class GraphNode(BaseModel):
+    id: str
+    label: str
+    type: str = "concept"
+
+class GraphLink(BaseModel):
+    source: str
+    target: str
+    label: str
+
+class GraphResponse(BaseModel):
+    nodes: List[GraphNode]
+    links: List[GraphLink]
+
 
 class SummaryResponse(BaseModel):
     conversation_id: str
