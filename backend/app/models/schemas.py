@@ -61,6 +61,7 @@ class ConversationResponse(BaseModel):
     title: str
     persona_id: str
     memory_type: str
+    pre_switch_summary: Optional[str] = None
     memory_config: Optional[Dict[str, Any]] = None
     is_pinned: bool
     is_archived: bool

@@ -29,6 +29,7 @@ class Conversation(Base):
     title = Column(String(255), nullable=False, default="New Conversation")
     persona_id = Column(String(50), ForeignKey("personas.id"), nullable=False, default="general_assistant")
     memory_type = Column(String(50), nullable=False, default="buffer")  # buffer, summary, entity, kg, hybrid
+    pre_switch_summary = Column(Text, nullable=True, default=None)  # Stores summary of past messages when user switches memory type mid-conversation
     memory_config = Column(JSON, nullable=True, default=lambda: {
         "summary_interval": 5,
         "max_buffer_size": 20,

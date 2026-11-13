@@ -45,7 +45,9 @@ class LLMClient:
                 self._utility_llm = ChatGroq(
                     model=settings.GROQ_MODEL,
                     groq_api_key=settings.GROQ_API_KEY,
-                    temperature=0.1
+                    temperature=0.1,
+                    request_timeout=3.0,
+                    max_retries=1
                 )
                 logger.info(f"Utility LLM initialized with Groq ({settings.GROQ_MODEL})")
             except Exception as e:
@@ -133,7 +135,10 @@ Output strictly in valid JSON format with this exact structure:
 """
         if self._utility_llm:
             try:
-                res = await self._utility_llm.ainvoke([HumanMessage(content=prompt)])
+                res = await asyncio.wait_for(
+                    self._utility_llm.ainvoke([HumanMessage(content=prompt)]),
+                    timeout=5.0
+                )
                 content = res.content if hasattr(res, "content") else str(res)
                 # Strip markdown code fences if present
                 clean_json = re.sub(r"^```json\s*|\s*```$", "", content.strip(), flags=re.MULTILINE)
@@ -181,7 +186,10 @@ Provide only the updated condensed summary paragraph:
 """
         if self._utility_llm:
             try:
-                res = await self._utility_llm.ainvoke([HumanMessage(content=prompt)])
+                res = await asyncio.wait_for(
+                    self._utility_llm.ainvoke([HumanMessage(content=prompt)]),
+                    timeout=5.0
+                )
                 return res.content.strip() if hasattr(res, "content") else str(res).strip()
             except Exception as e:
                 logger.error(f"Summarization error: {e}")
@@ -203,7 +211,10 @@ Respond with ONLY the category name.
 """
         if self._utility_llm:
             try:
-                res = await self._utility_llm.ainvoke([HumanMessage(content=prompt)])
+                res = await asyncio.wait_for(
+                    self._utility_llm.ainvoke([HumanMessage(content=prompt)]),
+                    timeout=5.0
+                )
                 intent = res.content.strip().lower().replace("'", "").replace('"', '')
                 for category in ["factual_recall", "analysis", "instruction", "small_talk"]:
                     if category in intent:
