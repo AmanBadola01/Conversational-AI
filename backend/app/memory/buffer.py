@@ -58,3 +58,4 @@ class BufferMemory(BaseMemory):
         db: Session
     ) -> Dict[str, Any]:
         return {"memory_type": "buffer", "status": "updated"}
+

@@ -44,3 +44,4 @@ class BaseMemory(ABC):
         Executed in the background after each turn to extract facts, update summaries, or prune history.
         """
         pass
+

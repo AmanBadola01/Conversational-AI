@@ -91,3 +91,4 @@ class SummaryMemory(BaseMemory):
             return {"memory_type": "summary", "summarized": True, "summary": new_summary}
 
         return {"memory_type": "summary", "summarized": False}
+
