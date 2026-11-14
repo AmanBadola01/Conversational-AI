@@ -1,6 +1,7 @@
 # Environment & Secrets
 .env
 *.env.local
+prompt.txt
 
 # Python & Virtual Environments
 __pycache__/
