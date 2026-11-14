@@ -6,6 +6,15 @@ from dotenv import load_dotenv
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 load_dotenv(BASE_DIR / ".env")
 
+def _clean_api_key(value: str) -> str:
+    """Treat empty and placeholder keys from .env.example as unset."""
+    cleaned = (value or "").strip()
+    lowered = cleaned.lower()
+    if not cleaned or lowered.startswith("your_") or lowered.endswith("_here"):
+        return ""
+    return cleaned
+
+
 class Settings:
     """
     Central Configuration for the Application.
@@ -26,12 +35,12 @@ class Settings:
     )
     
     # Primary LLM: Google Gemini (Chat Streaming)
-    GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
-    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
-    
+    GEMINI_API_KEY: str = _clean_api_key(os.getenv("SECRET_GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY", ""))
+    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.0-flash").strip() or "gemini-2.0-flash"
+
     # Secondary Utility LLM: Groq (Extraction, Summaries, KG)
-    GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
-    GROQ_MODEL: str = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
+    GROQ_API_KEY: str = _clean_api_key(os.getenv("SECRET_GROQ_API_KEY") or os.getenv("GROQ_API_KEY", ""))
+    GROQ_MODEL: str = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant").strip() or "llama-3.1-8b-instant"
     
     # Context Window Budget Allocation (Total: 4,000 tokens)
     TOTAL_TOKEN_BUDGET: int = 4000

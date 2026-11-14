@@ -1,226 +1,170 @@
-# Conversational AI Platform with Memory & Chains
+# Continuum — Conversational AI
 
-[![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
-[![FastAPI](https://img.shields.io/badge/Backend-FastAPI-009688.svg)](https://fastapi.tiangolo.com/)
-[![PostgreSQL](https://img.shields.io/badge/Database-PostgreSQL-336791.svg)](https://www.postgresql.org/)
-[![LangChain](https://img.shields.io/badge/Orchestration-LangChain%20LCEL-1C3C3C.svg)](https://python.langchain.com/)
-[![Gemini](https://img.shields.io/badge/Primary%20LLM-Google%20Gemini-4285F4.svg)](https://ai.google.dev/)
-[![Groq](https://img.shields.io/badge/Utility%20LLM-Groq%20Llama--3.1-F55036.svg)](https://groq.com/)
+A full-stack AI chat workspace with persistent conversations, configurable personas, and inspectable memory. Continuum combines streamed responses with summaries, entity tracking, and knowledge graphs to carry useful context across longer conversations.
 
-An enterprise-grade Conversational AI Platform engineered to solve the hardest challenge in production chatbots: **stateful memory, long-term factual recall, and context window optimization**.
+**[Open the live app](http://agents.excellencetechnologies.in:20311/)** · **[Sign in / Create an account](http://agents.excellencetechnologies.in:20311/login/)**
 
----
+## Features
 
-## 🎯 The Core Problem & Mission
+- **Streaming chat:** Gemini responses delivered through Server-Sent Events, with saved conversation history.
+- **Account-based workspace:** registration, sign-in, password hashing, and ownership checks for conversations and personal resources.
+- **Conversation management:** rename, pin, archive, and export conversations.
+- **Five memory strategies:** buffer, summary, entity, knowledge graph, and hybrid, with automatic buffer-to-hybrid switching for longer chats.
+- **Memory inspection:** explore extracted entities, entity history, relationship triples, summaries, and context usage.
+- **Configurable personas:** built-in assistants and custom personas with their own instructions and default memory settings.
+- **Context budgeting:** a configurable 4,000-token budget with middle truncation that prioritizes initial context, entity-defining messages, and recent turns.
+- **Responsive interface:** light/dark themes, a React message composer, and animated topology backgrounds that respect reduced-motion preferences.
 
-Standard chatbots suffer from **naive memory**: they append the entire raw chat history into every prompt. This causes:
-1. **$O(N)$ Token Explosion**: Conversations quickly breach token limits, generating costly API errors.
-2. **Context Dilution ("Lost in the Middle")**: Crucial facts established early in the conversation are forgotten or hallucinated away.
-3. **Naive Truncation Flaws**: Traditional FIFO truncation drops the oldest messages first, immediately erasing the original setup instructions and project constraints.
+## Technology
 
-### The Ultimate Benchmark
-> *"Can your chatbot maintain a 50+ message conversation and accurately recall a specific fact introduced in Message #3 when queried at Message #50 without running out of tokens?"*
+| Layer | Stack |
+| --- | --- |
+| Frontend | React 19, TypeScript, Vite 7, Tailwind CSS 4 |
+| Backend | Python, FastAPI, Pydantic, SQLAlchemy |
+| AI orchestration | LangChain, Google Gemini, Groq |
+| Persistence | PostgreSQL, with a local SQLite fallback |
+| Streaming | Server-Sent Events (SSE) |
+| Deployment | Uvicorn, PM2; one origin for the UI and API |
 
-This platform achieves this through **4 discrete memory paradigms**, a **composite hybrid engine**, **modern LangChain LCEL chains**, and **Smart Middle-Truncation**.
+Gemini generates user-facing replies. Groq handles utility work such as summarization and fact extraction. The integrated server defaults to `gemini-3.1-flash-lite` and `openai/gpt-oss-20b`; both model names can be overridden through environment variables.
 
----
+## How it works
 
-## 🧠 Architectural Pillars
+1. An authenticated user opens a conversation and selects a persona and memory strategy.
+2. The backend assembles persona instructions, retrieved memory, and recent messages within the context budget.
+3. The selected chain streams the model response to the browser.
+4. Conversation turns are persisted, and the memory pipeline updates summaries, entities, or relationships according to the selected strategy.
+5. The inspector exposes the stored memory for review.
 
-```text
-                                  ┌─────────────────────────────┐
-                                  │      Incoming Message       │
-                                  └──────────────┬──────────────┘
-                                                 │
-                                                 ▼
-                                  ┌─────────────────────────────┐
-                                  │  Intent Classifier & Router │
-                                  └──────────────┬──────────────┘
-                                                 │
-                   ┌─────────────────────────────┼─────────────────────────────┐
-                   │                             │                             │
-                   ▼                             ▼                             ▼
-       ┌───────────────────────┐     ┌───────────────────────┐     ┌───────────────────────┐
-       │     Summary Memory    │     │     Entity Memory     │     │  Knowledge Graph (KG) │
-       │  • Periodic macro-    │     │  • Micro-fact store   │     │  • (Subject, Predicate│
-       │    condensation every │     │  • Attribute tracking │     │    Object) triples    │
-       │    N turns (default 5)│     │  • Version timeline   │     │  • Relational sub-    │
-       │  • O(1) token cost    │     │    (v1 -> v2 -> v3)   │     │    graph queries      │
-       └───────────┬───────────┘     └───────────┬───────────┘     └───────────┬───────────┘
-                   │                             │                             │
-                   └─────────────────────────────┼─────────────────────────────┘
-                                                 ▼
-                                  ┌─────────────────────────────┐
-                                  │    Hybrid Memory Context    │
-                                  │ Summary + Entities + Graph  │
-                                  └──────────────┬──────────────┘
-                                                 │
-                                                 ▼
-                                  ┌─────────────────────────────┐
-                                  │   Context Window Manager    │
-                                  │  • 4,000 Total Token Budget │
-                                  │  • Smart Middle-Truncation  │
-                                  └──────────────┬──────────────┘
-                                                 │
-                                                 ▼
-                                  ┌─────────────────────────────┐
-                                  │    Primary LLM (Gemini)     │
-                                  │  Streaming Response via SSE │
-                                  └─────────────────────────────┘
-```
+## Run locally
 
-### 1. The 5 Memory Paradigms
-- **Buffer Memory (`ConversationBufferMemory`)**: Stores exact dialogue verbatim. Ideal for short, highly focused interactions ($< 20$ messages).
-- **Summary Memory (`ConversationSummaryMemory`)**: Condenses older dialogue into a concise running summary paragraph every $N$ messages (default: 5) using an LLM.
-- **Entity Memory (`ConversationEntityMemory`)**: Extracts named entities (people, projects, organizations, technologies, dates), dynamically updates their attributes, and maintains a versioned timeline ($v_1 \to v_2 \to v_3$).
-- **Knowledge Graph Memory (`ConversationKGMemory`)**: Extracts Subject-Predicate-Object triples `(Subject, Predicate, Object)` and queries connected subgraphs for relationship context.
-- **Hybrid Memory & Auto-Switching Engine**: Combines Summary (macro) + Entity (micro) + KG (relational) + recent buffer turns. Automatically upgrades conversations from Buffer to Hybrid once history exceeds 15 messages.
+### Requirements
 
-### 2. Context Window Economics & Smart Middle-Truncation
-Strictly manages a **4,000-token total budget**:
-- **System / Persona Prompt**: 500 tokens
-- **Memory Context (Summary + Entities + KG)**: 1,000 tokens
-- **Recent Messages Window**: 1,500 tokens
-- **Reserved Output Buffer**: 1,000 tokens
+- Python 3.10 or newer.
+- Node.js 22.12 or newer and npm.
+- Gemini and Groq API credentials for the full AI workflow.
+- PostgreSQL for a managed database, or the built-in SQLite fallback for local development.
 
-**Smart Middle-Truncation Algorithm**:
-Instead of dropping the oldest messages (which erases early instructions and setup parameters), it prunes from the **middle** of dialogue history while strictly preserving:
-1. **The Head Anchor**: Initial setup messages and guidelines.
-2. **Entity-Defining Messages**: Any message where entities or facts were first declared (`has_entity_definition = True`).
-3. **The Tail Anchor**: The latest user prompt and immediate conversational turns.
+### 1. Clone and install
 
-### 3. Dual-LLM Infrastructure
-To avoid rate-limit exhaustion (`HTTP 429`) on free-tier APIs:
-- **Primary LLM (Google Gemini 2.0 Flash)**: Reserved strictly for real-time user-facing conversational streaming via Server-Sent Events (SSE).
-- **Utility LLM (Groq Llama-3.1-8b)**: Operates at ~500 tokens/sec to execute background tasks (entity extraction, KG triple discovery, periodic summarization) in parallel without blocking user streaming.
-
----
-
-## 🗄️ Database Architecture (PostgreSQL + SQLAlchemy)
-
-The database schema is modeled with full foreign-key constraints and cascading lifecycle management:
-
-| Table | Purpose |
-| :--- | :--- |
-| **`conversations`** | Tracks chat sessions, active persona, memory strategy, and pin/archive status. |
-| **`messages`** | Stores every dialogue turn verbatim, token counts, and entity definition markers. |
-| **`entities`** | Dynamic fact store for subjects, supporting cross-session memory (`is_global`). |
-| **`entity_history`** | Version snapshots ($v_1 \to v_2$) powering the Entity Evolution Timeline. |
-| **`kg_triples`** | Relational facts powering the interactive network visualizer. |
-| **`conversation_summaries`** | Running condensed macro-summaries of the dialogue. |
-| **`personas`** | Chatbot personas (General Assistant, Code Helper, Creative Writer, Business Analyst, Study Buddy). |
-
----
-
-## 📂 Project Structure
-
-```text
-Conversational AI/
-├── backend/
-│   ├── app/
-│   │   ├── core/                  # Core configs, DB engine, Token Manager
-│   │   │   ├── config.py          # Environment settings & budget constants
-│   │   │   ├── database.py        # PostgreSQL engine & session factory
-│   │   │   └── context_manager.py # 4k Budget & Smart Middle-Truncation
-│   │   │
-│   │   ├── memory/                # 🧠 Dedicated Isolated Memory Module
-│   │   │   ├── base.py            # BaseMemory abstract interface
-│   │   │   ├── buffer.py          # Verbatim buffer memory
-│   │   │   ├── summary.py         # Condensed summary memory
-│   │   │   ├── entity.py          # Entity memory & evolution store
-│   │   │   ├── knowledge_graph.py # Subject-Predicate-Object triple engine
-│   │   │   ├── hybrid.py          # Composite memory & auto-switching
-│   │   │   └── manager.py         # Memory factory dispatcher
-│   │   │
-│   │   ├── chains/                # LangChain LCEL Pipelines
-│   │   │   ├── sequential.py      # Intent -> Enrich -> Generate -> Update
-│   │   │   ├── parallel.py        # Concurrent response + background extraction
-│   │   │   └── router.py          # Dynamic intent routing
-│   │   │
-│   │   ├── llm/                   # Dual-LLM Clients
-│   │   │   └── client.py          # Gemini Primary + Groq Utility setup
-│   │   │
-│   │   ├── models/                # Database Models & Pydantic Schemas
-│   │   │   ├── db_models.py       # SQLAlchemy tables
-│   │   │   └── schemas.py         # Request/response validation
-│   │   │
-│   │   ├── routers/               # FastAPI Endpoints
-│   │   │   ├── conversations.py   # Conversation CRUD, Pin, Archive, Export
-│   │   │   ├── messages.py        # Real-time SSE streaming chat
-│   │   │   ├── memory.py          # Entity & Knowledge Graph inspection
-│   │   │   ├── personas.py        # Persona configuration & testing
-│   │   │   └── compare.py         # A/B Memory Comparison Workbench
-│   │   │
-│   │   ├── data/
-│   │   │   └── personas.json      # 5 Built-in persona definitions
-│   │   └── main.py                # FastAPI Application Entry
-│   │
-│   ├── requirements.txt           # Python dependencies
-│   ├── .env.example               # Template environment configuration
-│   └── test_backend.py            # Comprehensive verification test suite
-│
-├── .gitignore
-└── README.md
-```
-
----
-
-## 🚀 Getting Started
-
-### 1. Prerequisites
-- Python 3.10+
-- PostgreSQL (or local SQLite fallback during setup)
-- Google Gemini API Key ([Google AI Studio](https://aistudio.google.com/))
-- Groq API Key ([Groq Console](https://console.groq.com/))
-
-### 2. Environment Setup
 ```bash
-# Clone the repository
 git clone https://github.com/AmanBadola01/Conversational-AI.git
 cd Conversational-AI
-
-# Create and activate a virtual environment
-python -m venv venv
-# On Windows:
-venv\Scripts\activate
-# On Linux/macOS:
-source venv/bin/activate
-
-# Install dependencies
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r backend/requirements.txt
 ```
 
-### 3. Configure `.env`
-Copy the example configuration:
+On Windows, activate the environment with `.venv\Scripts\activate`.
+
+### 2. Configure the backend
+
 ```bash
 cp backend/.env.example backend/.env
 ```
-Fill in your credentials in `backend/.env`:
-```env
-DATABASE_URL=postgresql://postgres:postgres@localhost:5432/conversational_ai
-GEMINI_API_KEY=your_gemini_api_key_here
-GEMINI_MODEL=gemini-2.0-flash
-GROQ_API_KEY=your_groq_api_key_here
-GROQ_MODEL=llama-3.1-8b-instant
-```
 
-### 4. Run the Backend Server
+Edit `backend/.env` with your database URL, API credentials, and a long random `AUTH_SECRET`. The file is excluded from Git.
+
+| Variable | Purpose |
+| --- | --- |
+| `DATABASE_URL` | PostgreSQL connection URL. If PostgreSQL is unavailable, the app falls back to `conversational_ai.db` in the working directory. |
+| `GEMINI_API_KEY` | Primary chat provider credential. |
+| `GROQ_API_KEY` | Utility provider credential for memory tasks. |
+| `GEMINI_MODEL` | Optional primary model override. |
+| `GROQ_MODEL` | Optional utility model override. |
+| `AUTH_SECRET` | Stable signing secret for login tokens; configure it for persistent sessions across restarts. |
+| `DEBUG` | Set to `False` for deployment. |
+
+Managed deployments also accept injected `SECRET_GEMINI_API_KEY` and `SECRET_GROQ_API_KEY` values. Keep all credentials on the server.
+
+### 3. Build the interface
+
 ```bash
-python -m uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 --reload
+cd frontend-preview
+npm ci
+npm run build:integrated
+cd ..
 ```
 
-Interactive Swagger documentation is available at: **`http://localhost:8000/docs`**
+This compiles the chat interface and login background, then assembles the integrated page in `frontend-preview/dist/`.
 
----
+### 4. Start the application
 
-## 🧪 Verification & Automated Testing
+From the repository root, with the Python virtual environment active:
 
-To run the complete verification suite verifying database connectivity, persona initialization, middle-truncation, and streaming:
 ```bash
-python backend/test_backend.py
+uvicorn preview_server:app --host 127.0.0.1 --port 8000
 ```
 
----
+Open **http://localhost:8000/** and create an account. The integrated server serves both the frontend and API.
 
-## 👤 Author
-- **Aman Badola** - [GitHub](https://github.com/AmanBadola01)
+| Route | Purpose |
+| --- | --- |
+| `/` | Chat workspace |
+| `/login/` | Sign-in and registration |
+| `/docs` | Interactive API documentation |
+| `/health` | Application and database health |
+| `/api/runtime` | Model names and provider configuration status; no credentials |
+
+To run only the API, use `uvicorn backend.app.main:app --host 127.0.0.1 --port 8000`.
+
+## Tests
+
+From the repository root with the virtual environment active:
+
+```bash
+python -m unittest backend.tests.test_backend_regressions -v
+```
+
+Frontend tests and production build:
+
+```bash
+cd frontend-preview
+npm test
+npm run build:integrated
+```
+
+For integration tests against a running local server:
+
+```bash
+PREVIEW_URL=http://127.0.0.1:8000 npm run test:live
+```
+
+The live suite exercises real HTTP APIs and may call configured model providers. Use a development instance for this check.
+
+## Repository layout
+
+```text
+backend/
+  app/
+    chains/          Intent routing and sequential orchestration
+    core/            Configuration, authentication, database, context budget
+    data/            Built-in persona definitions
+    llm/             Gemini and Groq clients
+    memory/          Buffer, summary, entity, graph, and hybrid strategies
+    models/          Database models and request/response schemas
+    routers/         Authentication, conversations, messages, memory, personas
+  tests/             Backend regression tests
+  .env.example       Environment template
+  requirements.txt   Python dependencies
+frontend-preview/
+  components/        React interface components
+  scripts/           Builds and frontend/integration tests
+  integrated.js      Browser-to-backend integration
+  index.html         Workspace template
+login/               Login page, styles, and background assets
+deploy/              PM2 configuration and deployment notes
+preview_server.py    Integrated frontend/API entry point
+```
+
+## Deployment notes
+
+The current live instance is served at [agents.excellencetechnologies.in:20311](http://agents.excellencetechnologies.in:20311/). See [deployment instructions](deploy/README.md) for PM2 commands and host reboot recovery requirements.
+
+Use HTTPS and a persistent `AUTH_SECRET` for an internet-facing deployment. The current live address uses HTTP. Back up the database separately; credentials, database files, dependencies, and process state are excluded from source control. PM2 crash recovery is configured; host reboot recovery still requires administrator setup.
+
+The standalone frontend preview simulates chat; run `preview_server:app` for real backend integration. Chat accepts text only; image upload and analysis are not implemented. Voice transcription depends on browser support and a secure context.
+
+## Author
+
+Built by [Aman Badola](https://github.com/AmanBadola01).

@@ -6,8 +6,9 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
+from backend.app.core.auth import get_current_user
 from backend.app.core.database import get_db
-from backend.app.models.db_models import Persona
+from backend.app.models.db_models import Persona, User
 from backend.app.models.schemas import PersonaCreate, PersonaResponse
 
 logger = logging.getLogger(__name__)
@@ -50,12 +51,15 @@ def seed_default_personas(db: Session):
 # List Personas: Retrieves all available personas ordered with built-in templates first followed by popularity
 @router.get("", response_model=List[PersonaResponse])
 def list_personas(
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     # Ensure standard personas are populated on first launch
     seed_default_personas(db)
 
-    personas = db.query(Persona).order_by(
+    personas = db.query(Persona).filter(
+        (Persona.is_builtin == True) | (Persona.owner_id == current_user.id)
+    ).order_by(
         desc(Persona.is_builtin),
         desc(Persona.usage_count),
         Persona.name.asc()
@@ -67,11 +71,15 @@ def list_personas(
 @router.get("/{persona_id}", response_model=PersonaResponse)
 def get_persona(
     persona_id: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     seed_default_personas(db)
-    
-    persona = db.query(Persona).filter(Persona.id == persona_id).first()
+
+    persona = db.query(Persona).filter(
+        Persona.id == persona_id,
+        (Persona.is_builtin == True) | (Persona.owner_id == current_user.id)
+    ).first()
     if not persona:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, 
@@ -80,22 +88,31 @@ def get_persona(
 
     return persona
 
+ALLOWED_MEMORY_TYPES = {"buffer", "summary", "entity", "kg", "hybrid"}
+
 # Create Persona: Registers a user-defined custom AI personality with dedicated prompt and memory pairing
 @router.post("", response_model=PersonaResponse, status_code=status.HTTP_201_CREATED)
 def create_persona(
     payload: PersonaCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    # Check for duplicate persona ID
-    existing = db.query(Persona).filter(Persona.id == payload.id.strip()).first()
+    normalized_id = payload.id.strip().lower()
+    if payload.default_memory.strip().lower() not in ALLOWED_MEMORY_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid default_memory '{payload.default_memory}'. Allowed: {sorted(ALLOWED_MEMORY_TYPES)}."
+        )
+    # Check for duplicate persona ID (ids are stored lowercased)
+    existing = db.query(Persona).filter(Persona.id == normalized_id).first()
     if existing:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, 
+            status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Persona with ID '{payload.id}' already exists."
         )
 
     new_persona = Persona(
-        id=payload.id.strip().lower(),
+        id=normalized_id,
         name=payload.name.strip(),
         avatar=payload.avatar.strip(),
         system_prompt=payload.system_prompt.strip(),
@@ -104,6 +121,7 @@ def create_persona(
         temperature=payload.temperature,
         domain=payload.domain.strip(),
         is_builtin=False,
+        owner_id=current_user.id,
         usage_count=0
     )
 
@@ -117,9 +135,13 @@ def create_persona(
 @router.delete("/{persona_id}", status_code=status.HTTP_200_OK)
 def delete_persona(
     persona_id: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    persona = db.query(Persona).filter(Persona.id == persona_id).first()
+    persona = db.query(Persona).filter(
+        Persona.id == persona_id,
+        (Persona.owner_id == current_user.id)
+    ).first()
     if not persona:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, 

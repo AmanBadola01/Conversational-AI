@@ -1,0 +1,4 @@
+"use client";
+import React from 'react';
+import {PromptInput} from '@/components/ui/ai-chat-input';
+export default function Demo(){const [sent,setSent]=React.useState('');return <div className="relative flex min-h-screen w-full flex-col items-center justify-center overflow-hidden" style={{backgroundImage:'radial-gradient(125% 125% at 50% 101%, rgba(245,87,2,1) 10.5%, rgba(245,120,2,1) 16%, rgba(245,140,2,1) 17.5%, rgba(245,170,100,1) 25%, rgba(238,174,202,1) 40%, rgba(202,179,214,1) 65%, rgba(148,201,233,1) 100%)'}}><div className="z-10 flex w-full max-w-lg justify-center p-4"><PromptInput placeholder="Ask anything..." onSubmit={(message,meta)=>setSent(`${message||'Image attachment'} · ${meta.persona} · ${meta.memoryTechnique} · ${meta.attachments.length} images`)}/></div><p role="status">{sent}</p></div>}

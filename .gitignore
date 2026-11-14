@@ -49,3 +49,6 @@ coverage/
 *.swo
 .DS_Store
 Thumbs.db
+
+# Deployment process state and logs
+.runtime/

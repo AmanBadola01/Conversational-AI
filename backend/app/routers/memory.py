@@ -4,9 +4,10 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from backend.app.core.auth import get_current_user, get_owned_conversation
 from backend.app.core.database import get_db
 from backend.app.models.db_models import (
-    Conversation, Message, Entity, EntityHistory, KGTriple, ConversationSummary, Persona
+    Conversation, Message, Entity, EntityHistory, KGTriple, ConversationSummary, Persona, User
 )
 from backend.app.models.schemas import (
     EntityResponse, EntityCreate, KGTripleResponse, KGTripleCreate,
@@ -25,18 +26,15 @@ router = APIRouter(prefix="/api/conversations/{conversation_id}/memory", tags=["
 @router.get("/entities", response_model=List[EntityResponse])
 def get_entities(
     conversation_id: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    conv = db.query(Conversation).filter(Conversation.id == conversation_id).first()
-    if not conv:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, 
-            detail=f"Conversation '{conversation_id}' not found."
-        )
+    conv = get_owned_conversation(db, conversation_id, current_user)
 
-    # Fetch conversation-specific entities and global cross-session entities
+    # Fetch this conversation's entities and the owner's global entities only.
     entities = db.query(Entity).filter(
-        (Entity.conversation_id == conversation_id) | (Entity.is_global == True)
+        (Entity.conversation_id == conversation_id)
+        | ((Entity.is_global == True) & (Entity.user_id == current_user.id))
     ).order_by(Entity.last_updated.desc()).all()
 
     return entities
@@ -46,14 +44,10 @@ def get_entities(
 def create_entity(
     conversation_id: str,
     payload: EntityCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    conv = db.query(Conversation).filter(Conversation.id == conversation_id).first()
-    if not conv:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, 
-            detail=f"Conversation '{conversation_id}' not found."
-        )
+    conv = get_owned_conversation(db, conversation_id, current_user)
 
     # Check if entity already exists
     existing = db.query(Entity).filter(
@@ -79,9 +73,10 @@ def create_entity(
         db.refresh(existing)
         return existing
 
-    # Create new entity fact
+    # Create new entity fact (globals stay private to their owner)
     new_entity = Entity(
         conversation_id=conversation_id if not payload.is_global else None,
+        user_id=current_user.id,
         name=payload.name.strip(),
         entity_type=payload.entity_type.strip(),
         description=payload.description.strip(),
@@ -103,16 +98,21 @@ def create_entity(
 
     return new_entity
 
-# Delete Entity: Removes an entity and its associated version timeline from the fact store
+# Delete Entity: Removes an entity and its associated version timeline from the fact store.
+# Global entities (conversation_id NULL) are listed in every conversation,
+# so they must also be deletable through any conversation path.
 @router.delete("/entities/{entity_id}", status_code=status.HTTP_200_OK)
 def delete_entity(
     conversation_id: str,
     entity_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
+    conv = get_owned_conversation(db, conversation_id, current_user)
     entity = db.query(Entity).filter(
         Entity.id == entity_id,
-        Entity.conversation_id == conversation_id
+        (Entity.conversation_id == conversation_id)
+        | ((Entity.is_global == True) & (Entity.user_id == current_user.id))
     ).first()
     if not entity:
         raise HTTPException(
@@ -128,14 +128,10 @@ def delete_entity(
 @router.get("/graph", response_model=GraphResponse)
 def get_graph_data(
     conversation_id: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    conv = db.query(Conversation).filter(Conversation.id == conversation_id).first()
-    if not conv:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, 
-            detail=f"Conversation '{conversation_id}' not found."
-        )
+    conv = get_owned_conversation(db, conversation_id, current_user)
 
     triples = db.query(KGTriple).filter(
         KGTriple.conversation_id == conversation_id
@@ -164,14 +160,10 @@ def get_graph_data(
 def create_triple(
     conversation_id: str,
     payload: KGTripleCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    conv = db.query(Conversation).filter(Conversation.id == conversation_id).first()
-    if not conv:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, 
-            detail=f"Conversation '{conversation_id}' not found."
-        )
+    conv = get_owned_conversation(db, conversation_id, current_user)
 
     # Check for duplicate triple
     existing = db.query(KGTriple).filter(
@@ -201,8 +193,10 @@ def create_triple(
 def delete_triple(
     conversation_id: str,
     triple_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
+    conv = get_owned_conversation(db, conversation_id, current_user)
     triple = db.query(KGTriple).filter(
         KGTriple.id == triple_id,
         KGTriple.conversation_id == conversation_id
@@ -221,14 +215,10 @@ def delete_triple(
 @router.get("/summary", response_model=Dict[str, Any])
 def get_summary(
     conversation_id: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    conv = db.query(Conversation).filter(Conversation.id == conversation_id).first()
-    if not conv:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, 
-            detail=f"Conversation '{conversation_id}' not found."
-        )
+    conv = get_owned_conversation(db, conversation_id, current_user)
 
     summary_record = db.query(ConversationSummary).filter(
         ConversationSummary.conversation_id == conversation_id
@@ -245,14 +235,10 @@ def get_summary(
 @router.post("/summary/regenerate", response_model=Dict[str, Any])
 async def regenerate_summary(
     conversation_id: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    conv = db.query(Conversation).filter(Conversation.id == conversation_id).first()
-    if not conv:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, 
-            detail=f"Conversation '{conversation_id}' not found."
-        )
+    conv = get_owned_conversation(db, conversation_id, current_user)
 
     all_messages = db.query(Message).filter(
         Message.conversation_id == conversation_id
@@ -297,14 +283,10 @@ async def regenerate_summary(
 @router.get("/tokens", response_model=TokenUsageResponse)
 def get_token_usage(
     conversation_id: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    conv = db.query(Conversation).filter(Conversation.id == conversation_id).first()
-    if not conv:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, 
-            detail=f"Conversation '{conversation_id}' not found."
-        )
+    conv = get_owned_conversation(db, conversation_id, current_user)
 
     persona = db.query(Persona).filter(Persona.id == conv.persona_id).first()
     base_prompt = persona.system_prompt if persona else "You are a versatile AI assistant."

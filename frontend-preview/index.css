@@ -1,0 +1,100 @@
+@layer theme, base, components, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+@import "tw-animate-css";
+@custom-variant dark (&:where(.dark, .dark *));
+@theme inline {
+ --color-background:hsl(var(--background)); --color-foreground:hsl(var(--foreground));
+ --color-card:hsl(var(--card)); --color-muted:hsl(var(--muted)); --color-muted-foreground:hsl(var(--muted-foreground));
+ --color-primary:hsl(var(--primary)); --color-primary-foreground:hsl(var(--primary-foreground));
+ --color-accent:hsl(var(--accent)); --color-border:hsl(var(--border)); --color-ring:hsl(var(--ring));
+ --color-destructive-foreground:hsl(var(--destructive-foreground));
+}
+:root {--background:60 14% 98%;--foreground:80 6% 15%;--card:0 0% 100%;--muted:75 16% 93%;--muted-foreground:80 6% 47%;--primary:90 19% 23%;--primary-foreground:0 0% 100%;--accent:80 20% 89%;--border:80 16% 82%;--ring:90 22% 43%;--destructive-foreground:0 0% 100%;}
+.dark{--destructive-foreground:0 0% 0%;}
+#react-composer button{cursor:pointer}
+#react-composer button:focus-visible{outline:2px solid hsl(var(--ring));outline-offset:3px}
+#react-composer textarea{font:14px/22px system-ui,sans-serif}
+@media(prefers-reduced-motion:reduce){#react-composer *,[data-attachment-dialog] *{transition:none!important;animation:none!important}}
+#react-composer,[data-attachment-dialog]{--background:60 14% 98%;--foreground:80 6% 15%;--card:0 0% 100%;--muted:75 16% 93%;--muted-foreground:80 6% 47%;--primary:90 19% 23%;--primary-foreground:0 0% 100%;--accent:80 20% 89%;--border:80 16% 82%;--ring:90 22% 43%;}
+#composerWrap select{border:0;background:transparent;color:#747c69;font:10px system-ui,sans-serif;padding:3px}
+#react-composer button:is([aria-label="Use voice input"],[aria-label="Send prompt"],[aria-label="Stop recording"]){color:hsl(var(--primary-foreground))}
+#react-composer fieldset:disabled button{cursor:wait;opacity:.6}
+/* The rounded card supplies the focus indicator; suppress the workspace's rectangular textarea outline. */
+#react-composer textarea:focus,
+#react-composer textarea:focus-visible{outline:none;outline-offset:0;box-shadow:none}
+
+/* Decorative scene stays behind content and never intercepts chat input. */
+.main{position:relative;isolation:isolate}
+#chat-topology-background{position:absolute;inset:0;z-index:-1;pointer-events:none;opacity:.45;overflow:hidden}
+.main>.canvas{background:transparent}
+.main>.topbar{background:transparent;border-bottom:0}
+.main>.composer-wrap{background:transparent}
+@media(prefers-reduced-motion:reduce){#chat-topology-background{opacity:.2}}
+#chat-topology-background{z-index:0}
+.main>.topbar,.main>.canvas,.main>.composer-wrap{position:relative;z-index:1}
+/* Workspace-owned theme; independent of the surrounding report host theme. */
+html[data-continuum-theme="dark"],html[data-continuum-theme="dark"] body{background:#080808;color:#e5e5e5;color-scheme:dark}
+html[data-continuum-theme="dark"] .main{background:#080808}
+html[data-continuum-theme="dark"] .main>.canvas{background:transparent}
+html[data-continuum-theme="dark"] .side{background:#111111;border-color:#2c2c2c}
+html[data-continuum-theme="dark"] .inspector{background:#101010;border-color:#2c2c2c}
+html[data-continuum-theme="dark"] :is(.topbar,.inspector header,.section,.profile){border-color:#2c2c2c}
+html[data-continuum-theme="dark"] :is(.muted,.crumb,.subtitle,.hint,.eyebrow,.who time,.section h4,.note,.timeline .event){color:#a3a3a3}
+html[data-continuum-theme="dark"] :is(.topbar strong,.timeline .event strong){color:#e5e5e5}
+html[data-continuum-theme="dark"] button:hover{background:#242424}
+html[data-continuum-theme="dark"] :is(.active,.tabs .selected){background:#2b2b2b!important;color:#eeeeee}
+html[data-continuum-theme="dark"] .new{background:#191919!important;border-color:#3a3a3a;color:#e5e5e5}
+html[data-continuum-theme="dark"] :is(.user .bubble,.entity,.chain span,.view-panel input){background:#171717;border-color:#303030;color:#e5e5e5}
+html[data-continuum-theme="dark"] :is(.pill,.cite){background:#1c1c1c;border-color:#383838;color:#d4d4d4}
+html[data-continuum-theme="dark"] :is(.bubble code,.bubble pre){background:#202020;color:#e0e0e0}
+html[data-continuum-theme="dark"] :is(.avatar,.divider button){border-color:#444444}
+html[data-continuum-theme="dark"] :is(.divider:before,.divider:after){background:#303030}
+html[data-continuum-theme="dark"] .timeline{border-color:#4a4a4a}
+html[data-continuum-theme="dark"] .graph line{stroke:#555555}
+html[data-continuum-theme="dark"] .graph circle{fill:#202020;stroke:#999999}
+html[data-continuum-theme="dark"] .graph circle:hover{fill:#383838}
+html[data-continuum-theme="dark"] .graph text{fill:#dddddd}
+html[data-continuum-theme="dark"] :is(.entity .tag,#chainStatus){color:#bdbdbd!important}
+html[data-continuum-theme="dark"] .toast{background:#e0e0e0;color:#111111}
+html[data-continuum-theme="dark"] :is(#react-composer,[data-attachment-dialog]){--background:0 0% 3%;--foreground:0 0% 90%;--card:0 0% 8%;--muted:0 0% 13%;--muted-foreground:0 0% 65%;--primary:0 0% 90%;--primary-foreground:0 0% 7%;--accent:0 0% 17%;--border:0 0% 24%;--ring:0 0% 65%;}
+html[data-continuum-theme="dark"] #composerWrap select{color:#b3b3b3}
+#react-composer option{background:hsl(var(--card));color:hsl(var(--foreground))}
+#theme-control{display:inline-flex;align-items:center}
+#theme-control button{font:18px/1 system-ui,sans-serif;min-width:34px;min-height:34px}
+html[data-continuum-theme="dark"] #chat-topology-background{opacity:.22}
+html[data-continuum-theme="dark"] .ai .mark{color:#d4d4d4}
+html[data-continuum-theme="dark"] .divider::before,
+html[data-continuum-theme="dark"] .divider::after{background:#303030}
+
+/* Neutral details: no olive status, focus, graph or brand accents in dark mode. */
+html[data-continuum-theme="dark"] .logo{background:#e5e5e5;color:#111111}
+html[data-continuum-theme="dark"] .dot,
+html[data-continuum-theme="dark"] .event::before{background:#b3b3b3}
+html[data-continuum-theme="dark"] .bar i{background:#9a9a9a}
+html[data-continuum-theme="dark"] .bar i:nth-child(2){background:#707070}
+html[data-continuum-theme="dark"] .bar i:nth-child(3){background:#484848}
+html[data-continuum-theme="dark"] .bar i:nth-child(4){background:#292929}
+html[data-continuum-theme="dark"] :is(button,input,textarea,select):focus-visible{outline-color:#a3a3a3}
+/* User prompts align right; assistant responses start near the left canvas edge. */
+#messages .msg{min-width:0;margin-block:28px}
+#messages .msg.user{width:fit-content;max-width:min(82%,68ch);margin-left:auto;margin-right:0}
+#messages .msg.ai{width:88%;max-width:78ch;margin-left:0;margin-right:auto}
+#messages .user .bubble{padding:13px 18px;border-radius:18px 18px 5px 18px}
+#messages .ai .who{justify-content:flex-start}
+#messages .user .who{justify-content:flex-end}
+.main>.canvas{padding-inline:clamp(20px,3vw,44px)}
+#messages .bubble{overflow-wrap:anywhere;text-align:left}
+#messages .bubble pre{max-width:100%;overflow-x:auto;white-space:pre}
+#messages .cite{display:inline-flex;max-width:100%;white-space:normal;overflow-wrap:anywhere;margin-top:8px}
+@media(max-width:650px){#messages .msg.user{max-width:88%}#messages .msg.ai{width:94%}#messages .who{flex-wrap:wrap;gap:6px}}
+
+.thread-controls{padding:8px 10px;display:grid;gap:8px}.thread-controls input[type=search]{width:100%;border:1px solid var(--line, #7776);border-radius:8px;background:transparent;color:inherit;padding:8px;font:inherit}.thread-controls label{font-size:12px;opacity:.72;display:flex;align-items:center;gap:6px}.thread-row{display:flex;align-items:center;position:relative}.thread-row .conversation{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.thread-menu{position:relative}.thread-menu summary{cursor:pointer;list-style:none;padding:6px 10px}.thread-menu summary::-webkit-details-marker{display:none}.thread-menu div{position:absolute;right:0;top:100%;z-index:30;min-width:130px;padding:4px;border:1px solid #7776;border-radius:8px;background:var(--card, #222);box-shadow:0 8px 25px #0004}.thread-menu button{display:block;width:100%;text-align:left;padding:7px 10px;background:transparent;color:inherit;border:0;cursor:pointer}.thread-menu button:hover,.thread-menu button:focus-visible{background:#8883}.side>#threads{overflow-y:auto;overflow-x:visible}
+
+.thread-menu div{background:#fff;color:#222}[data-continuum-theme="dark"] .thread-menu div{background:#202020;color:#eee}
+
+.thread-menu div{position:fixed;right:auto;top:auto;width:152px;min-width:0;max-height:calc(100dvh - 16px);overflow-y:auto;z-index:1000}.thread-menu button{padding:6px 10px;font-size:12px;line-height:1.3}
+
+.thread-search{display:flex;align-items:center;gap:6px}.thread-search-toggle{display:grid;place-items:center;width:32px;height:32px;flex:none;border:0;border-radius:7px;background:transparent;color:inherit;cursor:pointer}.thread-search-toggle:hover,.thread-search-toggle:focus-visible{background:#8883}.thread-controls .thread-search input[type=search]{min-width:0;flex:1}.thread-controls .thread-search input[hidden]{display:none}
+
+.thread-search-field{display:grid;grid-template-columns:0fr;opacity:0;min-width:0;transition:grid-template-columns .25s ease,opacity .2s ease}.thread-search-field.is-open{grid-template-columns:1fr;opacity:1;flex:1}.thread-controls .thread-search-field input[type=search]{width:100%;min-width:0;overflow:hidden}.thread-search-field:not(.is-open) input{padding-left:0;padding-right:0;border-color:transparent}@media (prefers-reduced-motion:reduce){.thread-search-field{transition:none}}

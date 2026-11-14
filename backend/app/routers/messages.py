@@ -5,8 +5,9 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
+from backend.app.core.auth import get_current_user, get_owned_conversation
 from backend.app.core.database import get_db, SessionLocal
-from backend.app.models.db_models import Conversation, Message
+from backend.app.models.db_models import Conversation, Message, ConversationSummary, User
 from backend.app.models.schemas import MessageCreate, MessageResponse
 from backend.app.chains.sequential import execute_sequential_chain, post_turn_update
 
@@ -63,14 +64,10 @@ async def stream_chat_turn(
 async def send_message(
     conversation_id: str,
     payload: MessageCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    conv = db.query(Conversation).filter(Conversation.id == conversation_id).first()
-    if not conv:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, 
-            detail=f"Conversation '{conversation_id}' not found."
-        )
+    conv = get_owned_conversation(db, conversation_id, current_user)
 
     # Return persistent Server-Sent Events (SSE) stream
     return StreamingResponse(
@@ -91,14 +88,10 @@ async def send_message(
 @router.get("/{conversation_id}/messages", response_model=List[MessageResponse])
 def list_messages(
     conversation_id: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    conv = db.query(Conversation).filter(Conversation.id == conversation_id).first()
-    if not conv:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, 
-            detail=f"Conversation '{conversation_id}' not found."
-        )
+    conv = get_owned_conversation(db, conversation_id, current_user)
 
     messages = db.query(Message).filter(
         Message.conversation_id == conversation_id
@@ -110,16 +103,17 @@ def list_messages(
 @router.delete("/{conversation_id}/messages", status_code=status.HTTP_200_OK)
 def clear_messages(
     conversation_id: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    conv = db.query(Conversation).filter(Conversation.id == conversation_id).first()
-    if not conv:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, 
-            detail=f"Conversation '{conversation_id}' not found."
-        )
+    conv = get_owned_conversation(db, conversation_id, current_user)
 
     deleted_count = db.query(Message).filter(Message.conversation_id == conversation_id).delete()
+    # A cleared chat must not keep injecting its old summary as context.
+    db.query(ConversationSummary).filter(
+        ConversationSummary.conversation_id == conversation_id
+    ).delete()
+    conv.pre_switch_summary = None
     db.commit()
 
     return {

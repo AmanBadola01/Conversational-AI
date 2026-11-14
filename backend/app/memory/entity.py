@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from typing import Dict, Any, List
 from sqlalchemy.orm import Session
 from backend.app.memory.base import BaseMemory
-from backend.app.models.db_models import Entity, EntityHistory, Message
+from backend.app.models.db_models import Conversation, Entity, EntityHistory, Message
 from backend.app.llm.client import llm_client
 
 logger = logging.getLogger(__name__)
@@ -29,9 +29,13 @@ class EntityMemory(BaseMemory):
         current_query: str, 
         db: Session
     ) -> str:
-        # Retrieve conversation-specific entities and global cross-session entities
+        # Retrieve this conversation's entities plus the owner's globals only,
+        # so one account's profile facts never enter another account's prompt.
+        owner = db.query(Conversation.user_id).filter(Conversation.id == conversation_id).first()
+        owner_id = owner[0] if owner else None
         all_entities = db.query(Entity).filter(
-            (Entity.conversation_id == conversation_id) | (Entity.is_global == True)
+            (Entity.conversation_id == conversation_id)
+            | ((Entity.is_global == True) & (Entity.user_id == owner_id))
         ).all()
 
         if not all_entities:
@@ -124,9 +128,11 @@ class EntityMemory(BaseMemory):
                 db.add(history_entry)
                 updated_count += 1
             else:
-                # Insert newly discovered entity
+                # Insert newly discovered entity, stamped with its owner
+                owner = db.query(Conversation.user_id).filter(Conversation.id == conversation_id).first()
                 new_entity = Entity(
                     conversation_id=conversation_id,
+                    user_id=owner[0] if owner else None,
                     name=name,
                     entity_type=ent_type,
                     description=desc,

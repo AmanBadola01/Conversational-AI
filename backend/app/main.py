@@ -9,6 +9,7 @@ from backend.app.core.config import settings
 from backend.app.core.database import init_db, SessionLocal, get_db
 from backend.app.routers.personas import seed_default_personas
 from backend.app.routers import (
+    auth_router,
     conversations_router,
     messages_router,
     memory_router,
@@ -53,16 +54,18 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# CORS Configuration: Enables secure cross-origin requests for the React frontend application
+# CORS Configuration: Enables cross-origin requests for the React frontend.
+# Wildcard origins cannot be combined with credentials per the CORS spec.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Router Registration: Registers all 4 core API routers
+# Router Registration: auth plus the 4 core API routers
+app.include_router(auth_router)
 app.include_router(conversations_router)
 app.include_router(messages_router)
 app.include_router(memory_router)
@@ -80,7 +83,8 @@ def root_endpoint():
             "buffer",
             "summary",
             "entity",
-            "kg"
+            "kg",
+            "hybrid"
         ],
         "models": {
             "primary_chat": settings.GEMINI_MODEL,
@@ -112,3 +116,18 @@ def health_check(db: Session = Depends(get_db)):
         "primary_model": settings.GEMINI_MODEL,
         "utility_model": settings.GROQ_MODEL
     }
+
+
+@app.middleware("http")
+async def private_responses(request, call_next):
+    from urllib.parse import urlsplit
+    from fastapi.responses import JSONResponse
+    origin = request.headers.get("origin")
+    if request.method in {"POST", "PATCH", "PUT", "DELETE"} and origin and urlsplit(origin).netloc != request.url.netloc:
+        return JSONResponse({"detail": "Cross-origin requests are not allowed."}, status_code=403)
+    response = await call_next(request)
+    if request.url.path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-store"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "same-origin"
+    return response

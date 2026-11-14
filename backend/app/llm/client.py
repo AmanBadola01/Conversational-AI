@@ -83,13 +83,22 @@ class LLMClient:
         if llm:
             try:
                 async for chunk in llm.astream(messages):
-                    if hasattr(chunk, "content") and chunk.content:
-                        yield chunk.content
+                    content = getattr(chunk, "content", "")
+                    if isinstance(content, str):
+                        text = content
+                    elif isinstance(content, list):
+                        text = "".join(block.get("text", "") for block in content
+                                       if isinstance(block, dict) and block.get("type") == "text")
+                    else:
+                        text = ""
+                    if text:
+                        yield text
                 return
             except Exception as e:
-                logger.error(f"Error streaming from Gemini: {e}")
-                yield f"[API Error: {e}]"
-                return
+                # A configured provider failure must not masquerade as a real reply.
+                # Avoid logging provider details, which can contain request credentials.
+                logger.error("Gemini streaming failed (%s)", type(e).__name__)
+                raise RuntimeError("Gemini could not generate a response. Please retry.") from e
 
         # Development Fallback Streamer (runs when GEMINI_API_KEY is not yet supplied)
         mock_response = (

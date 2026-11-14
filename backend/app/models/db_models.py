@@ -16,6 +16,21 @@ def get_utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+class User(Base):
+    """An account. Every conversation and its memory belong to one account."""
+
+    __tablename__ = "users"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    username = Column(String(80), nullable=False)
+    email = Column(String(255), nullable=False, unique=True, index=True)
+    profile_number = Column(String(80), nullable=True)
+    password_hash = Column(String(255), nullable=False)
+    created_at = Column(DateTime(timezone=True), default=get_utc_now, nullable=False)
+
+    conversations = relationship("Conversation", back_populates="owner", cascade="all, delete-orphan")
+
+
 # Memory Technique: Central Orchestrator — stores active memory_type (buffer, summary, entity, kg, hybrid) and auto-switching state
 class Conversation(Base):
     """
@@ -26,6 +41,7 @@ class Conversation(Base):
     __tablename__ = "conversations"
 
     id = Column(String(36), primary_key=True, default=generate_uuid)
+    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
     title = Column(String(255), nullable=False, default="New Conversation")
     persona_id = Column(String(50), ForeignKey("personas.id"), nullable=False, default="general_assistant")
     memory_type = Column(String(50), nullable=False, default="buffer")  # buffer, summary, entity, kg, hybrid
@@ -47,6 +63,7 @@ class Conversation(Base):
     kg_triples = relationship("KGTriple", back_populates="conversation", cascade="all, delete-orphan")
     summary = relationship("ConversationSummary", back_populates="conversation", uselist=False, cascade="all, delete-orphan")
     persona = relationship("Persona", back_populates="conversations")
+    owner = relationship("User", back_populates="conversations")
 
 
 # Memory Technique: Buffer Memory (stores verbatim dialogue turns) & Smart Middle-Truncation (via has_entity_definition)
@@ -79,6 +96,7 @@ class Entity(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     conversation_id = Column(String(36), ForeignKey("conversations.id", ondelete="CASCADE"), nullable=True, index=True)
+    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
     name = Column(String(150), nullable=False, index=True)
     entity_type = Column(String(50), nullable=False, default="other")  # person, organization, project, technology, date, concept
     description = Column(Text, nullable=False)
@@ -168,6 +186,7 @@ class Persona(Base):
     temperature = Column(Float, nullable=False, default=0.7)
     domain = Column(String(50), nullable=False, default="general")  # general, technical, creative, business, educational
     is_builtin = Column(Boolean, default=False, nullable=False)
+    owner_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
     usage_count = Column(Integer, default=0, nullable=False)
     created_at = Column(DateTime(timezone=True), default=get_utc_now, nullable=False)
 

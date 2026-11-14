@@ -6,7 +6,9 @@ from backend.app.memory.buffer import BufferMemory
 from backend.app.memory.summary import SummaryMemory
 from backend.app.memory.entity import EntityMemory
 from backend.app.memory.knowledge_graph import KGMemory
+from backend.app.memory.hybrid import HybridMemory
 from backend.app.models.db_models import Conversation, Message
+from backend.app.core.config import settings
 from backend.app.llm.client import llm_client
 
 logger = logging.getLogger(__name__)
@@ -28,7 +30,8 @@ class MemoryManager:
             "buffer": BufferMemory(),
             "summary": SummaryMemory(),
             "entity": EntityMemory(),
-            "kg": KGMemory()
+            "kg": KGMemory(),
+            "hybrid": HybridMemory()
         }
 
     # Strategy Resolver: Resolves and returns the matching memory class based on conversation.memory_type (defaults to Buffer)
@@ -65,21 +68,42 @@ class MemoryManager:
 
     # Unified Mutation Dispatcher: Dispatches post-turn background state updates to the active memory strategy
     async def update(
-        self, 
-        conversation: Conversation, 
-        user_message: str, 
-        assistant_message: str, 
+        self,
+        conversation: Conversation,
+        user_message: str,
+        assistant_message: str,
         source_message_id: str,
         db: Session
     ) -> Dict[str, Any]:
         strategy = self.get_memory_strategy(conversation.memory_type)
-        return await strategy.update_memory(
+        result = await strategy.update_memory(
             conversation_id=conversation.id,
             user_message=user_message,
             assistant_message=assistant_message,
             source_message_id=source_message_id,
             db=db
         )
+
+        # Auto-switch: upgrade long Buffer conversations to Hybrid so facts
+        # keep being extracted after the verbatim window gets long.
+        config = conversation.memory_config or {}
+        if (
+            conversation.memory_type.lower() == "buffer"
+            and config.get("auto_switch_enabled", True)
+        ):
+            total = db.query(Message).filter(
+                Message.conversation_id == conversation.id
+            ).count()
+            if total >= settings.AUTO_SWITCH_THRESHOLD:
+                switched = await self.switch_memory_type(
+                    conversation_id=conversation.id,
+                    new_memory_type="hybrid",
+                    db=db
+                )
+                db.refresh(conversation)
+                result = {**result, "auto_switched": switched}
+
+        return result
 
     # Memory Type Switcher: Generates a summary of past messages and stores it before switching to the new memory technique
     async def switch_memory_type(

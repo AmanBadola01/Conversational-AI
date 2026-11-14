@@ -2,6 +2,36 @@ from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 
+
+# ----------------- Auth Schemas -----------------
+class UserRegister(BaseModel):
+    profile_number: Optional[str] = Field(default=None, max_length=80, pattern=r"^-?[0-9]+$")
+    username: str = Field(..., min_length=2, max_length=80, example="Aman")
+    email: str = Field(..., min_length=3, max_length=255, example="aman@example.com")
+    password: str = Field(..., min_length=8, max_length=128)
+
+
+class UserLogin(BaseModel):
+    email: str = Field(..., min_length=3, max_length=255, example="aman@example.com")
+    password: str = Field(..., min_length=1, max_length=128)
+
+
+class UserResponse(BaseModel):
+    profile_number: Optional[str] = None
+    id: str
+    username: str
+    email: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class AuthResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: UserResponse
+
 # ----------------- Persona Schemas -----------------
 class PersonaBase(BaseModel):
     name: str = Field(..., example="General Assistant")
@@ -45,7 +75,8 @@ class MessageResponse(BaseModel):
 class ConversationCreate(BaseModel):
     title: Optional[str] = Field(default="New Conversation")
     persona_id: str = Field(default="general_assistant")
-    memory_type: str = Field(default="buffer")  # buffer, summary, entity, kg, hybrid
+    # None means "use the persona's recommended memory strategy".
+    memory_type: Optional[str] = Field(default=None)  # buffer, summary, entity, kg, hybrid
     memory_config: Optional[Dict[str, Any]] = None
 
 class ConversationUpdate(BaseModel):

@@ -42,53 +42,59 @@ class SummaryMemory(BaseMemory):
             )
         return ""
 
-    # Background Condensation: Checks message threshold and triggers Groq utility LLM to synthesize an updated summary paragraph
+    # Background Condensation: Summarizes only messages not yet summarized,
+    # once at least summary_interval new messages have accumulated.
     async def update_memory(
-        self, 
-        conversation_id: str, 
-        user_message: str, 
-        assistant_message: str, 
+        self,
+        conversation_id: str,
+        user_message: str,
+        assistant_message: str,
         source_message_id: str,
         db: Session
     ) -> Dict[str, Any]:
-        # Count total messages in this conversation
-        total_messages = db.query(Message).filter(
+        all_messages = db.query(Message).filter(
             Message.conversation_id == conversation_id
-        ).count()
+        ).order_by(Message.created_at.asc()).all()
 
         summary_record = db.query(ConversationSummary).filter(
             ConversationSummary.conversation_id == conversation_id
         ).first()
 
-        # Trigger condensation if message count has reached the summary interval
-        if total_messages >= self.summary_interval:
-            all_messages = db.query(Message).filter(
-                Message.conversation_id == conversation_id
-            ).order_by(Message.created_at.asc()).all()
-
-            current_text = summary_record.summary_text if summary_record else ""
-            
-            # Call the utility LLM (Groq) to compress dialogue without consuming Gemini quota
-            new_summary = await llm_client.summarize_conversation(
-                current_summary=current_text,
-                new_messages=all_messages
-            )
-
-            # Persist updated summary to PostgreSQL
-            if not summary_record:
-                summary_record = ConversationSummary(
-                    conversation_id=conversation_id,
-                    summary_text=new_summary,
-                    last_summarized_message_id=source_message_id
-                )
-                db.add(summary_record)
+        # Only the delta since the last summarized message is new work.
+        if summary_record and summary_record.last_summarized_message_id:
+            ids = [m.id for m in all_messages]
+            if summary_record.last_summarized_message_id in ids:
+                start = ids.index(summary_record.last_summarized_message_id) + 1
+                new_messages = all_messages[start:]
             else:
-                summary_record.summary_text = new_summary
-                summary_record.last_summarized_message_id = source_message_id
+                new_messages = all_messages
+        else:
+            new_messages = all_messages
 
-            db.commit()
-            logger.info(f"Updated ConversationSummary for conversation {conversation_id}")
-            return {"memory_type": "summary", "summarized": True, "summary": new_summary}
+        if len(new_messages) < self.summary_interval:
+            return {"memory_type": "summary", "summarized": False}
 
-        return {"memory_type": "summary", "summarized": False}
+        current_text = summary_record.summary_text if summary_record else ""
+
+        # Call the utility LLM (Groq) to compress dialogue without consuming Gemini quota
+        new_summary = await llm_client.summarize_conversation(
+            current_summary=current_text,
+            new_messages=new_messages
+        )
+
+        last_id = new_messages[-1].id if new_messages else source_message_id
+        if not summary_record:
+            summary_record = ConversationSummary(
+                conversation_id=conversation_id,
+                summary_text=new_summary,
+                last_summarized_message_id=last_id
+            )
+            db.add(summary_record)
+        else:
+            summary_record.summary_text = new_summary
+            summary_record.last_summarized_message_id = last_id
+
+        db.commit()
+        logger.info(f"Updated ConversationSummary for conversation {conversation_id}")
+        return {"memory_type": "summary", "summarized": True, "summary": new_summary}
 

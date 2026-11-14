@@ -4,9 +4,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
+from backend.app.core.auth import get_current_user, get_owned_conversation
 from backend.app.core.database import get_db
 from backend.app.models.db_models import (
-    Conversation, Message, Persona, Entity, KGTriple, ConversationSummary
+    Conversation, Message, Persona, Entity, KGTriple, ConversationSummary, User
 )
 from backend.app.models.schemas import (
     ConversationCreate, 
@@ -18,6 +19,8 @@ from backend.app.memory.manager import memory_manager
 
 logger = logging.getLogger(__name__)
 
+ALLOWED_MEMORY_TYPES = {"buffer", "summary", "entity", "kg", "hybrid"}
+
 router = APIRouter(prefix="/api/conversations", tags=["Conversations"])
 
 # List Conversations: Retrieves all conversations filtered by archive status and search query, ordered with pinned chats first
@@ -25,9 +28,13 @@ router = APIRouter(prefix="/api/conversations", tags=["Conversations"])
 def list_conversations(
     archived: bool = Query(False, description="Filter for archived conversations"),
     search: Optional[str] = Query(None, description="Search term for conversation titles"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    query = db.query(Conversation).filter(Conversation.is_archived == archived)
+    query = db.query(Conversation).filter(
+        Conversation.is_archived == archived,
+        Conversation.user_id == current_user.id
+    )
     
     if search:
         query = query.filter(Conversation.title.ilike(f"%{search.strip()}%"))
@@ -62,18 +69,31 @@ def list_conversations(
 @router.post("", response_model=ConversationResponse, status_code=status.HTTP_201_CREATED)
 def create_conversation(
     payload: ConversationCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    # Verify persona existence, default to general_assistant if not found
-    persona = db.query(Persona).filter(Persona.id == payload.persona_id).first()
-    persona_id = persona.id if persona else "general_assistant"
+    # Verify persona existence, default to general_assistant if not found.
+    # Custom personas are only usable by their owner.
+    persona = db.query(Persona).filter(
+        Persona.id == payload.persona_id,
+        (Persona.is_builtin == True) | (Persona.owner_id == current_user.id)
+    ).first()
+    if persona is None:
+        raise HTTPException(status_code=404, detail="Persona not found.")
+    persona_id = persona.id
 
-    # Default memory technique follows the persona's recommended memory unless explicitly overridden
-    chosen_memory = payload.memory_type
+    # Explicit memory_type wins; otherwise follow the persona's recommendation.
+    chosen_memory = (payload.memory_type or "").strip().lower() or None
+    if chosen_memory and chosen_memory not in ALLOWED_MEMORY_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid memory_type '{payload.memory_type}'. Allowed: {sorted(ALLOWED_MEMORY_TYPES)}."
+        )
     if not chosen_memory and persona:
-        chosen_memory = persona.default_memory
+        chosen_memory = (persona.default_memory or "buffer").strip().lower()
 
     new_conversation = Conversation(
+        user_id=current_user.id,
         title=payload.title or "New Conversation",
         persona_id=persona_id,
         memory_type=chosen_memory or "buffer",
@@ -107,14 +127,10 @@ def create_conversation(
 @router.get("/{conversation_id}", response_model=ConversationDetailResponse)
 def get_conversation(
     conversation_id: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    conv = db.query(Conversation).filter(Conversation.id == conversation_id).first()
-    if not conv:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, 
-            detail=f"Conversation '{conversation_id}' not found."
-        )
+    conv = get_owned_conversation(db, conversation_id, current_user)
 
     # Convert messages and persona
     return ConversationDetailResponse(
@@ -138,13 +154,15 @@ def get_conversation(
 async def update_conversation(
     conversation_id: str,
     payload: ConversationUpdate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    conv = db.query(Conversation).filter(Conversation.id == conversation_id).first()
-    if not conv:
+    conv = get_owned_conversation(db, conversation_id, current_user)
+
+    if payload.memory_type and payload.memory_type.strip().lower() not in ALLOWED_MEMORY_TYPES:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, 
-            detail=f"Conversation '{conversation_id}' not found."
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid memory_type '{payload.memory_type}'. Allowed: {sorted(ALLOWED_MEMORY_TYPES)}."
         )
 
     # Check if user is switching memory type mid-conversation
@@ -160,8 +178,11 @@ async def update_conversation(
     if payload.title is not None:
         conv.title = payload.title.strip()
     if payload.persona_id is not None:
-        # Validate persona
-        persona = db.query(Persona).filter(Persona.id == payload.persona_id).first()
+        # Validate persona (custom personas only for their owner)
+        persona = db.query(Persona).filter(
+            Persona.id == payload.persona_id,
+            (Persona.is_builtin == True) | (Persona.owner_id == current_user.id)
+        ).first()
         if persona:
             conv.persona_id = persona.id
     if payload.is_pinned is not None:
@@ -192,14 +213,10 @@ async def update_conversation(
 @router.delete("/{conversation_id}", status_code=status.HTTP_200_OK)
 def delete_conversation(
     conversation_id: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    conv = db.query(Conversation).filter(Conversation.id == conversation_id).first()
-    if not conv:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, 
-            detail=f"Conversation '{conversation_id}' not found."
-        )
+    conv = get_owned_conversation(db, conversation_id, current_user)
 
     db.delete(conv)
     db.commit()
@@ -209,14 +226,10 @@ def delete_conversation(
 @router.post("/{conversation_id}/pin", response_model=Dict[str, Any])
 def toggle_pin(
     conversation_id: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    conv = db.query(Conversation).filter(Conversation.id == conversation_id).first()
-    if not conv:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, 
-            detail=f"Conversation '{conversation_id}' not found."
-        )
+    conv = get_owned_conversation(db, conversation_id, current_user)
 
     conv.is_pinned = not conv.is_pinned
     db.commit()
@@ -226,14 +239,10 @@ def toggle_pin(
 @router.post("/{conversation_id}/archive", response_model=Dict[str, Any])
 def toggle_archive(
     conversation_id: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    conv = db.query(Conversation).filter(Conversation.id == conversation_id).first()
-    if not conv:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, 
-            detail=f"Conversation '{conversation_id}' not found."
-        )
+    conv = get_owned_conversation(db, conversation_id, current_user)
 
     conv.is_archived = not conv.is_archived
     db.commit()
@@ -243,14 +252,10 @@ def toggle_archive(
 @router.get("/{conversation_id}/export", response_model=Dict[str, Any])
 def export_conversation(
     conversation_id: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    conv = db.query(Conversation).filter(Conversation.id == conversation_id).first()
-    if not conv:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, 
-            detail=f"Conversation '{conversation_id}' not found."
-        )
+    conv = get_owned_conversation(db, conversation_id, current_user)
 
     # Gather all memory states for complete audit export
     entities = db.query(Entity).filter(Entity.conversation_id == conversation_id).all()

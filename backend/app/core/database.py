@@ -64,8 +64,29 @@ def get_db():
 def init_db():
     """
     Creates all registered tables in the database if they do not exist.
+    Also adds account-ownership columns to databases created before
+    accounts existed, without touching their other data.
     """
     # Imports will be registered here when models are defined
     from backend.app.models import db_models  # noqa
+    from sqlalchemy import inspect, text
+
     Base.metadata.create_all(bind=engine)
+    additions = {
+        "users": [("profile_number", "VARCHAR(80)")],
+        "conversations": [("user_id", "VARCHAR(36)")],
+        "entities": [("user_id", "VARCHAR(36)")],
+        "personas": [("owner_id", "VARCHAR(36)")],
+    }
+    inspector = inspect(engine)
+    existing_tables = set(inspector.get_table_names())
+    with engine.begin() as conn:
+        for table, columns in additions.items():
+            if table not in existing_tables:
+                continue
+            present = {col["name"] for col in inspector.get_columns(table)}
+            for name, ddl in columns:
+                if name not in present:
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
+                    logger.info("Added %s.%s for account ownership.", table, name)
     logger.info("Database tables initialized.")
